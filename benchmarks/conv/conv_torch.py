@@ -2,8 +2,6 @@ import torch.nn.functional as F
 import torch
 import numba
 
-from torch.profiler import profile, record_function, ProfilerActivity
-
 torch.backends.cudnn.benchmark = True
 
 
@@ -40,20 +38,7 @@ def eval_task(args):
 
     tot += start.elapsed_time(end)
 
-    if not do_profile:
-        return tot / 1000
-
-    # profiler
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                 record_shapes=True) as prof:
-        with record_function("model_inference_{}".format(groups)):
-            for _ in range(100):
-                out = F.conv2d(data,
-                               weight,
-                               stride=strides,
-                               padding=padding,
-                               groups=groups)
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    return tot / 1000
 
 
 if __name__ == "__main__":

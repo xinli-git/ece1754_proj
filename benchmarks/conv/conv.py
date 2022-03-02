@@ -53,8 +53,8 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
         }
         measure_ctx = auto_scheduler.LocalRPCMeasureContext(min_repeat_ms=300)
 
-        cost_model = auto_scheduler.XGBModel(
-        ) if cost_model == "XGBoost" else auto_scheduler.RandomModel()
+        cost_model = auto_scheduler.XGBModel() \
+                if cost_model == "XGBoost" else auto_scheduler.RandomModel()
         search_policy = auto_scheduler.SketchPolicy(task,
                                                     cost_model,
                                                     params=PARAMS)
@@ -66,8 +66,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
             verbose=2,
         )
 
-        # Run auto-tuning (search)
-        task.tune(tune_option, search_policy)
+        task.tune(tune_option, )
         del measure_ctx
 
     # Apply the best schedule

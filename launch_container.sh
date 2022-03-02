@@ -1,6 +1,6 @@
 #!/bin/bash
 
-image=${1:-'nvcr.io/nvidia/pytorch:22.01-py3'}
+image=${1:-'nvcr.io/nvidia/pytorch:21.02-py3'}
 
 cmd="docker run -it \
     -v $HOME/:$HOME \
