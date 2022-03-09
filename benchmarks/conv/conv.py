@@ -7,6 +7,8 @@ from tvm import te, auto_scheduler, topi, autotvm
 import sys
 import argparse
 
+import datetime
+
 
 @auto_scheduler.register_workload
 def conv2d_layer(N, H, W, CO, CI, KH, KW, stride, padding):
@@ -34,40 +36,61 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
 
     log_file = os.path.join("./results/", "{}.json".format(t_name))
 
-    if not os.path.exists(log_file):
-        PARAMS = {
-            "eps_greedy": search_eps,
-            "retry_search_one_round_on_empty": 1,
-            "sample_init_min_population": 50,
-            "sample_init_use_measured_ratio": 0.2,
-            "evolutionary_search_population": 2048,
-            "evolutionary_search_num_iters": 4,
-            "evolutionary_search_mutation_prob": 0.85,
-            "cpu_multi_level_tiling_structure": "SSRSRS",
-            "gpu_multi_level_tiling_structure": "SSSRRSRS",
-            # Notice: the default thread bind policy of GPU assumes the tiling structure to have at
-            # least 3 spatial tiling levels in outermost
-            "max_innermost_split_factor": 64,
-            "max_vectorize_size": 16,
-            "disable_change_compute_location": 0,
-        }
-        measure_ctx = auto_scheduler.LocalRPCMeasureContext(min_repeat_ms=300)
+    PARAMS = {
+        "eps_greedy": search_eps,
+        "retry_search_one_round_on_empty": 1,
+        "sample_init_min_population": 50,
+        "sample_init_use_measured_ratio": 0.2,
+        "evolutionary_search_population": 2048,
+        "evolutionary_search_num_iters": 4,
+        "evolutionary_search_mutation_prob": 0.85,
+        "cpu_multi_level_tiling_structure": "SSRSRS",
+        "gpu_multi_level_tiling_structure": "SSSRRSRS",
+        # Notice: the default thread bind policy of GPU assumes the tiling structure to have at
+        # least 3 spatial tiling levels in outermost
+        "max_innermost_split_factor": 64,
+        "max_vectorize_size": 16,
+        "disable_change_compute_location": 0,
+    }
 
-        cost_model = auto_scheduler.XGBModel() \
-                if cost_model == "XGBoost" else auto_scheduler.RandomModel()
+    cost_model = auto_scheduler.XGBModel(adapative_training=True) \
+            if cost_model == "XGBoost" else auto_scheduler.RandomModel()
+
+    if not os.path.exists(log_file):
         search_policy = auto_scheduler.SketchPolicy(task,
                                                     cost_model,
                                                     params=PARAMS)
 
         tune_option = auto_scheduler.TuningOptions(
             num_measure_trials=niters,
-            runner=measure_ctx.runner,
             measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
             verbose=2,
         )
 
-        task.tune(tune_option, )
-        del measure_ctx
+        task.tune(tune_option, search_policy=search_policy)
+
+    else:
+        print("Resuming with log file", log_file)
+        with open(log_file) as f:
+            num_trials_done = sum(1 for _ in f)
+        num_trials_left = niters - num_trials_done
+        print("Executed: {} trils, resuming {}".format(num_trials_done, num_trials_left))
+        if num_trials_left > 0:
+            if isinstance(cost_model, auto_scheduler.XGBModel):
+                cost_model.update_from_file(log_file)
+            search_policy = auto_scheduler.SketchPolicy(
+                task, cost_model, params=PARAMS,
+                init_search_callbacks=[auto_scheduler.PreloadMeasuredStates(log_file)]
+            )
+
+            tune_option = auto_scheduler.TuningOptions(
+                num_measure_trials=num_trials_left,
+                measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
+                verbose=2,
+            )
+
+            task.tune(tune_option, search_policy=search_policy)
+    print("Done!", datetime.datetime.now())
 
     # Apply the best schedule
     sch, args = task.apply_best(log_file)
