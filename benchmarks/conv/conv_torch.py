@@ -47,8 +47,10 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3), 1),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1), 1),
             ]
-    for idx, filter_size in enumerate(filtre_size_opionts):
-        for batch_size in [1, 8, 64]:
-            args = (batch_size, ) + filter_size
-            prefix = "batch_{}_filter_id_{}".format(batch_size, idx)
-            print(prefix, ":", "{:.3f}".format(eval_task(args)))
+    with open("torch_conv.csv", "w") as f:
+
+        for idx, filter_size in enumerate(filtre_size_opionts):
+            for batch_size in [1, 8, 64]:
+                args = (batch_size, ) + filter_size
+                prefix = "batch_{}_filter_id_{}".format(batch_size, idx)
+                f.write("{}, {}\n".format(prefix, eval_task(args)))
