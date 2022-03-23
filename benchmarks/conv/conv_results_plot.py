@@ -14,121 +14,112 @@ import pathlib
 import json
 import matplotlib.pyplot as plt
 
-overall_results = {
-        "batch size" : [],
-        "conv layer id" : [],
-        "cost model" : [],
-        "search eps" : [],
-        "best latency" : [],
-        }
+
+def plot_overall_results(niters, combos, batch_size_options, filters, indirs, outdir):
+    fig, (ax0, ax1) = plt.subplots(2)
+    fig.set_figheight(10)
+    fig.set_figwidth(15)
+    width = 1
+    positions = (0, 10, 20)
+    for combo in combos + [('cudnn',)]:
+        cudnn = 'cudnn' in combo
+        label = 'cudnn' if cudnn else \
+                        "cost model: {}, eps: {}".format(*combo)
+        csv_f = "torch_conv.csv" if cudnn else \
+                "{}_{}_{}.csv".format(combo[0], combo[1], 10000)
+        overall_res = [indir / csv_f for indir in indirs]
+        overall_res_pds = [pd.read_csv(r) for r in overall_res]
+
+        overall_res_pd = overall_res_pds[0]
+        for pdd in overall_res_pds[1:]:
+            overall_res_pd['best latency'] += pdd['best latency']
+        overall_res_pd['best latency'] /= len(indirs)
+
+        overall_res_0 = overall_res_pd[overall_res_pd['conv layer id'] == 0]
+        overall_res_1 = overall_res_pd[overall_res_pd['conv layer id'] == 1]
+        ax0.bar(positions , overall_res_0['best latency'],
+                label=label)
+        ax1.bar(positions , overall_res_1['best latency'],
+                label=label)
+
+        positions = [p + width for p in positions]
 
 
-@auto_scheduler.register_workload
-def conv2d_layer(N, H, W, CO, CI, KH, KW, stride, padding):
-    data = te.placeholder((N, CI, H, W), name="data")
-    kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
-    conv = topi.nn.conv2d_nchw(data, kernel, stride, padding, dilation=1, out_dtype="float32")
-    return [data, kernel, conv]
+    for idx, ax in enumerate((ax0, ax1)):
+        batch_sizes = [1, 8, 64]
+        ax.set_xticks([i + 2.5 for i in (0, 10, 20)])
+        ax.set_xticklabels(map(str, batch_sizes))
+        ax.set(xlabel = "batch size", ylabel="best latency (ms)")
+        ax.legend(bbox_to_anchor=(1.1, 1.1))
+        ax.set(title=["First layer resnet", "Last layer resnet"][idx])
+        #ax.set_xscale("log", base=2)
+        ax.set_yscale("log", base=2)
+        ax.grid(axis='y')
+    fig.tight_layout()
+    fig.savefig(outdir / 'overall_results.png')
+
+def plot_progression(niters, combos, batch_size_options, filters, indirs, outdir, x_axis='iters'):
+
+    assert x_axis in ['iters', 'hours']
+    batch_sizes = [1, 8, 64]
+    cuda_csv = [indir / "torch_conv.csv" for indir in indirs]
+    cuda_res = pd.read_csv(cuda_csv[0])
+    for c in cuda_csv[1:]:
+        cuda_res.iloc[:, 2] += pd.read_csv(c).iloc[:, 2]
+    cuda_res.iloc[:, 2] /= len(indirs)
+    ylims = {
+            1 : [0.07, 0.35],
+            8 : [.5, 0.6],
+            64 : [5, 4],
+            }
+
+    steps = np.arange(50, 10001, 50)
+    for batch_size in batch_sizes:
+        for idx in (0, 1):
+            fig = plt.figure()
+            ax = fig.gca()
+            fig.set_figheight(10)
+            fig.set_figwidth(15)
+            for combo in combos:
+                label = "cost model: {}, eps: {}".format(*combo)
+                csv_f = "conv2d_layer_{}_eps_{}_niters_{}_batch_{}_filter_id_{}_partial_mins.csv".format(combo[0], combo[1], 10000, batch_size, idx)
+                overall_res = [indir / csv_f for indir in indirs]
+                overall_res_pd = [pd.read_csv(o) for o in overall_res]
+
+                if "XGBoost" in combo[0]:
+                    linestyle = 'solid'
+                else:
+                    linestyle = 'dashdot'
+
+                if x_axis == 'iters':
+                    x = steps
+                else:
+                    time_csv_f = "conv2d_layer_{}_eps_{}_niters_{}_batch_{}_filter_id_{}_timestamps.csv".format(combo[0], combo[1], 10000, batch_size, idx)
+                    timestamp = pd.read_csv(indirs[0] / time_csv_f)
+                    x = (timestamp.iloc[steps-1, 1] - timestamp.iloc[0, 1]) / 3600
+                ax.plot(x, sum([o.iloc[:, 1] for o in overall_res_pd]) / len(indirs), label=label, linestyle=linestyle)
 
 
-def collect_partial_results(log_file, niters):
+            cuda_val = cuda_res.loc[(cuda_res['batch size'] == batch_size) & (cuda_res['conv layer id'] == idx)]
+            cuda_val = float(cuda_val.iloc[0, 2])
+            ax.axhline(y=cuda_val, color='b', linestyle='--', label="cuDNN")
 
-    configs = list()
-    latencies = np.empty(niters)
-    timestamps = np.empty(niters, dtype=np.long)
-
-    restart_counter = 0
-
-    with open(log_file) as f:
-        for idx, line in enumerate(f):
-            obj = json.loads(line)
-            configs.append(obj['i'])
-
-            prev_timestamp = timestamps[idx - 1] if idx > 0 else timestamps[idx]
-            cur_timestamp = obj['r'][3] - restart_counter
-            if (cur_timestamp - prev_timestamp) > 100: # if its been too long
-                restart_counter += cur_timestamp - prev_timestamp
-                print("restart encoutered at {}, duration: {}".format(idx, cur_timestamp - prev_timestamp))
-                cur_timestamp -= cur_timestamp - prev_timestamp
-
-            timestamps[idx] = cur_timestamp
-
-            errno = obj['r'][1]
-            if errno != 0:
-                latency = np.Inf
-            else:
-                latency = obj['r'][0][0] * 1000 # ms
-            latencies[idx] = latency
-
-    min_latency = np.min(latencies)
-    partial_mins = []
-    for idx in range(10, niters):
-        partial_mins.append(np.min(latencies[:idx]))
-    #fig = plt.figure(figsize=(32, 4.8 ))
-    #ax = fig.add_subplot(111)
-    #ax.plot(partial_mins)
-    return pd.DataFrame(latencies), pd.DataFrame(timestamps), pd.DataFrame(partial_mins), min_latency
-
-def measure_task(func, cost_model, search_eps, niters, prefix, args, outdir):
-
-    t_name = func.__name__ + prefix
-
-    target = tvm.target.Target("cuda")
-    dev = tvm.cuda()
-
-    N, H, W, CO, CI, KH, KW, strides, padding = args
-    task = auto_scheduler.SearchTask(func=func, args=args, target=target)
-
-    log_file = os.path.join("./results/", "{}.json".format(t_name))
-    assert os.path.exists(log_file)
-
-    # Apply the best schedule
-    sch, args = task.apply_best(log_file)
-    tvm_func = tvm.build(sch, args, target)
-
-    data_np = np.random.uniform(size=(N, CI, H, W)).astype(np.float32)
-    weight_np = np.random.uniform(size=(CO, CI, KH,
-                                        KW)).astype(np.float32)
-
-    data_tvm = tvm.nd.empty((N, CI, H, W), device=dev)
-    weight_tvm = tvm.nd.empty((CO, CI, KH, KW), device=dev)
-    out_tvm = tvm.nd.empty((N, CO, H / strides[0], W / strides[1]), device=dev)
-
-    tvm_func(data_tvm, weight_tvm, out_tvm)
-
-    # Evaluate execution time
-    evaluator = tvm_func.time_evaluator(tvm_func.entry_name,
-                                        dev,
-                                        min_repeat_ms=500)
-    res = np.mean(evaluator(data_tvm, weight_tvm, out_tvm).results) * 1000
-    #plt.clf()
-    latencies, timestamps, partial_mins, min_latency = \
-            collect_partial_results(log_file, niters)
-    #plt.savefig(outdir / "{}.png".format(t_name))
-
-
-    latencies_file = outdir / "{}_latencies.csv".format(t_name)
-    timestamps_file = outdir / "{}_timestamps.csv".format(t_name)
-    partial_mins_file = outdir / "{}_partial_mins.csv".format(t_name)
-
-    latencies.to_csv(latencies_file)
-    timestamps.to_csv(timestamps_file)
-    partial_mins.to_csv(partial_mins_file)
-
-    return res, min_latency
-
+            ax.set(xlabel = x_axis, ylabel="best latency so far(ms)")
+            ax.legend(bbox_to_anchor=(1.1, 1.1))
+            ax.set(title=["First layer resnet, Batch {}", "Last layer resnet, Batch{}"][idx]\
+                                .format(batch_size))
+            ylim = ylims[batch_size][idx]
+            ax.set_ylim(bottom=0, top=ylim)
+            #ax.set_yscale("log", base=2)
+            ax.grid(axis='y')
+            fig.tight_layout()
+            fig.savefig(outdir / "batch_{}_filter_id_{}_partial_mins_{}.png".format(batch_size, idx, x_axis))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("benchmarking conv")
-    parser.add_argument("niters", type=int)
-    parser.add_argument("--cost_model", type=str, default="XGBoost", choices=["random", "XGBoost"])
-    parser.add_argument("--search_eps", type=float, default=0.05)
-    args = parser.parse_args()
 
-    niters = args.niters
-    cost_model = args.cost_model
-    search_eps = args.search_eps
+    niters = 10000
+    combos = [('random', 1.0), ('random', 0.05), ('random', 0.5), ('XGBoost', 0.05), ('XGBoost', 0.5),]
 
     batch_size_options = [1, 8, 64]
 
@@ -136,26 +127,14 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    outdir = pathlib.Path("./measurements/")
+    indirs = [pathlib.Path("./measurements_gpu_3/"), pathlib.Path("./measurements_gpu_2/")]
+
+    outdir = pathlib.Path("./plots/")
     outdir.mkdir(exist_ok=True)
-    outfile = outdir / "{}_{}_{}.csv".format(cost_model, search_eps, niters)
 
-    for idx, filter_size in enumerate(filtre_size_opionts):
-        for batch_size in batch_size_options:
+    plot_overall_results(niters, combos, batch_size_options, filters=2, indirs=indirs, outdir=outdir)
+    plot_progression(niters, combos, batch_size_options, filters=2, indirs=indirs, outdir=outdir)
+    plot_progression(niters, combos, batch_size_options, filters=2, indirs=indirs, outdir=outdir, x_axis='hours')
 
-            args = (batch_size, ) + filter_size
-            prefix = "_{}_eps_{}_niters_{}_batch_{}_filter_id_{}"\
-                        .format(cost_model, search_eps, niters, batch_size, idx)
-
-            res, log_res = measure_task(conv2d_layer, cost_model, search_eps, niters, prefix, args, outdir)
-            print(prefix, ":", "{:.3f} and {:.3f}".format(res, log_res))
-            overall_results["batch size"].append(batch_size)
-            overall_results["conv layer id"].append(idx)
-            overall_results["cost model"].append(cost_model)
-            overall_results["search eps"].append(search_eps)
-            overall_results["best latency"].append(res)
-
-    df = pd.DataFrame(data=overall_results)
-    df.to_csv(outfile)
 
 

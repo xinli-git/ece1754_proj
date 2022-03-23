@@ -84,7 +84,12 @@ def collect_partial_results(task, log_file, niters, prefix, args, target):
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as tempf:
             tempf.writelines(lines[:idx])
 
-        sch, args = task.apply_best(tempf.name)
+        try:
+            sch, args = task.apply_best(tempf.name)
+        except Exception as er:
+            print(er)
+            partial_mins.append(0)
+            continue
         tvm_func = tvm.build(sch, args, target)
 
         tvm_func(data_tvm, weight_tvm, out_tvm)
@@ -150,7 +155,7 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    outdir = pathlib.Path("./measurements/")
+    outdir = pathlib.Path("./measurements_gpu_1/")
     outdir.mkdir(exist_ok=True)
     outfile = outdir / "{}_{}_{}.csv".format(cost_model, search_eps, niters)
 

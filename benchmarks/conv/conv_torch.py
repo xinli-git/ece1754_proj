@@ -48,9 +48,9 @@ if __name__ == "__main__":
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1), 1),
             ]
     with open("torch_conv.csv", "w") as f:
-
+        f.write("batch size,conv layer id,best latency\n")
         for idx, filter_size in enumerate(filtre_size_opionts):
             for batch_size in [1, 8, 64]:
                 args = (batch_size, ) + filter_size
                 prefix = "batch_{}_filter_id_{}".format(batch_size, idx)
-                f.write("{}, {}\n".format(prefix, eval_task(args)))
+                f.write("{}, {}, {}\n".format(batch_size, idx, eval_task(args)))
