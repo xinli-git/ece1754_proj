@@ -120,19 +120,26 @@ def measure_task(func, niters, prefix, args, outdir):
 
     #plt.clf()
 
-    latencies, timestamps, partial_mins, min_tuned, min_measured = \
-            collect_partial_results(task, log_file, niters, prefix, args, target)
-
-    #plt.savefig(outdir / "{}.png".format(t_name))
-
-
     latencies_file = outdir / "{}_latencies.csv".format(t_name)
     timestamps_file = outdir / "{}_timestamps.csv".format(t_name)
     partial_mins_file = outdir / "{}_partial_mins.csv".format(t_name)
 
-    latencies.to_csv(latencies_file)
-    timestamps.to_csv(timestamps_file)
-    partial_mins.to_csv(partial_mins_file)
+    assert (latencies_file.exists() == timestamps_file.exists() == partial_mins_file.exists())
+    if latencies_file.exists():
+
+        latencies = pd.read_csv(latencies_file)
+        timestamps = pd.read_csv(timestamps_file)
+        partial_mins = pd.read_csv(partial_mins_file)
+        min_tuned = latencies.iloc[-1, 1]
+        min_measured = partial_mins.iloc[-1, 1]
+
+    else:
+        latencies, timestamps, partial_mins, min_tuned, min_measured = \
+            collect_partial_results(task, log_file, niters, prefix, args, target)
+
+        latencies.to_csv(latencies_file)
+        timestamps.to_csv(timestamps_file)
+        partial_mins.to_csv(partial_mins_file)
 
     return min_tuned, min_measured
 
@@ -155,7 +162,7 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    outdir = pathlib.Path("./measurements_gpu_1/")
+    outdir = pathlib.Path("./measurements_gpu_3/")
     outdir.mkdir(exist_ok=True)
     outfile = outdir / "{}_{}_{}.csv".format(cost_model, search_eps, niters)
 
