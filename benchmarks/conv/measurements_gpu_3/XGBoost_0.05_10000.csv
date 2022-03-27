@@ -1,5 +1,5 @@
 ,batch size,conv layer id,cost model,search eps,best latency
-0,1,0,XGBoost,0.05,0.026026870250103636
+0,1,0,XGBoost,0.05,0.02602687025010364
 1,8,0,XGBoost,0.05,0.1825727047880451
 2,64,0,XGBoost,0.05,1.4391328653366582
 3,1,1,XGBoost,0.05,0.06712454342857144
