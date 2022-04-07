@@ -127,7 +127,9 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    indirs = [pathlib.Path("./measurements_gpu_1/"), pathlib.Path("./measurements_gpu_3/"), pathlib.Path("./measurements_gpu_2/")]
+    indirs = [pathlib.Path("./measurements2_gpu_1/"),
+              pathlib.Path("./measurements2_gpu_2/"),
+              pathlib.Path("./measurements2_gpu_3/")]
 
     outdir = pathlib.Path("./plots/")
     outdir.mkdir(exist_ok=True)

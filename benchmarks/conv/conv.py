@@ -34,7 +34,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
     print("Computational DAG:")
     print(task.compute_dag)
 
-    log_file = os.path.join("./results/", "{}.json".format(t_name))
+    log_file = os.path.join("./results_gpu_3/", "{}.json".format(t_name))
 
     PARAMS = {
         "eps_greedy": search_eps,
@@ -55,6 +55,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
 
     cost_model = auto_scheduler.XGBModel(adapative_training=True) \
             if cost_model == "XGBoost" else auto_scheduler.RandomModel()
+
 
     if not os.path.exists(log_file):
         search_policy = auto_scheduler.SketchPolicy(task,
@@ -85,6 +86,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
 
             tune_option = auto_scheduler.TuningOptions(
                 num_measure_trials=num_trials_left,
+                runner=measure_ctx.runner,
                 measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
                 verbose=2,
             )

@@ -114,7 +114,7 @@ def measure_task(func, niters, prefix, args, outdir):
     target = tvm.target.Target("cuda")
     task = auto_scheduler.SearchTask(func=func, args=args, target=target)
 
-    log_file = os.path.join("./results/", "{}.json".format(t_name))
+    log_file = os.path.join("./results_gpu_3/", "{}.json".format(t_name))
     assert os.path.exists(log_file)
     print(log_file)
 
@@ -162,7 +162,7 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    outdir = pathlib.Path("./measurements_gpu_3/")
+    outdir = pathlib.Path("./measurements2_gpu_3/")
     outdir.mkdir(exist_ok=True)
     outfile = outdir / "{}_{}_{}.csv".format(cost_model, search_eps, niters)
 
