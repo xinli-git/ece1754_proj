@@ -304,6 +304,7 @@ class TunedSchedule:
 def process_schedule_file(grouped_files):
     global results_outdir
     group_schedules = []
+    seps = []
     for ffs in grouped_files[1]:
         infile, outfile = ffs
         outpickle = outfile + ".pkl"
@@ -327,35 +328,40 @@ def process_schedule_file(grouped_files):
             with open(outpickle, 'wb') as f:
                 pickle.dump(schedules, f, pickle.HIGHEST_PROTOCOL)
 
+        seps.append((   infile,
+                        len(group_schedules),
+                        len(group_schedules) + len(schedules)
+                    ))
         group_schedules += schedules
-
-    plot_cosine(group_schedules, grouped_files[0], results_outdir)
+    plot_cosine(group_schedules, grouped_files[0], results_outdir, seps)
 
     train(group_schedules, grouped_files[0], results_outdir)
 
     return grouped_files[0], len(group_schedules)
 
-def plot_cosine(schedules, group, outdir):
-    schedules = sorted(schedules, key=lambda x: x.performance)
+def plot_cosine(schedules, group, outdir, seps):
     #print(best)
     #for s in sorted_schedules[:10]:
     #    print("Best", best.get_similarity(s))
     #for s in sorted_schedules[-10:]:
     #    print("Worst", best.get_similarity(s))
 
-    first = schedules[0]
+    first = min(schedules, key=lambda x: x.performance)
     fig = plt.figure(figsize=(15, 10))
     ax = fig.gca()
 
-    perf_diffs = [sche.performance / first.performance for sche in schedules]
-    sche_diffs = [first.get_similarity(sche) for sche in schedules]
-
-    ax.scatter(sche_diffs, perf_diffs)
+    for label, start, end in seps:
+        label = label[label.find('conv2d') : label.find('_niters')]
+        schedule_portion = schedules[start:end]
+        perf_diffs = [sche.performance / first.performance for sche in schedule_portion]
+        sche_diffs = [first.get_similarity(sche) for sche in schedule_portion]
+        ax.scatter(sche_diffs, perf_diffs, label=label, alpha=0.5, s=8)
     ax.set(ylabel='Performance from first', xlabel="Cosine similarity from first")
     ax.set(title=group)
     ax.set(ylim=(1, 64))
     ax.grid(axis='y')
     ax.set_yscale("log", base=2)
+    fig.legend()
     fig.tight_layout()
     fig.savefig(outdir / (group + '_cosine.png'))
     plt.close(fig)

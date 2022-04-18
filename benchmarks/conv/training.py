@@ -45,6 +45,7 @@ class AnsorScheduleDataset( torch.utils.data.Dataset):
 
 
 def train(schedules, group, outdir):
+
     random.shuffle(schedules)
     split = 0.8
     train_idx = int(0.8 * len(schedules))
@@ -53,6 +54,7 @@ def train(schedules, group, outdir):
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=256, num_workers=8, pin_memory=True)
     val_dataset = AnsorScheduleDataset(schedules[train_idx:])
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
+    val_loader2 = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
 
     hidden_dim = 32
     num_layers = 4
@@ -64,11 +66,14 @@ def train(schedules, group, outdir):
     loss_fn = nn.MSELoss()
     optim = torch.optim.AdamW(lstm.parameters())
     loss_curve = []
-    for epoch in tqdm(range(30)):
+    accuracy = []
+    for epoch in tqdm(range(50)):
         #validate
         lstm.eval()
         avg_loss = 0
         count = 0
+        correct = 0
+        total = 0
         for data, label in val_loader:
             data = data.cuda()
             label = label.cuda()
@@ -77,8 +82,21 @@ def train(schedules, group, outdir):
             loss_val = loss_fn(pred, label)
             avg_loss += loss_val.item()
             count += 1
-        loss_curve.append(avg_loss/count)
 
+            grid_pred_x, grid_pred_y = torch.meshgrid(pred.flatten(), pred.flatten())
+            grid_label_x, grid_label_y = torch.meshgrid(label.flatten(), label.flatten())
+
+            correct_mat = (grid_pred_x >= grid_pred_y) == (grid_label_x >= grid_label_y)
+
+            correct += float(torch.sum(correct_mat))
+            total += len(pred) ** 2
+
+
+        loss_curve.append(avg_loss/count)
+        accuracy.append(correct/total)
+
+        if epoch > 0:
+            torch.save(lstm, outdir / (group + '_torch_{}.pt'.format(epoch)))
         # train
         lstm.train()
         for data, label in train_loader:
@@ -102,4 +120,14 @@ def train(schedules, group, outdir):
     fig.tight_layout()
     fig.savefig(outdir / (group + '_train.png'))
     plt.close(fig)
-    torch.save(lstm, outdir / (group + '_torch.pt'))
+
+    fig = plt.figure()
+    ax = fig.gca()
+    ax.plot(accuracy)
+    ax.set(ylabel='Accuracy', xlabel="Epochs")
+    ax.set(title=group)
+    ax.grid(axis='y')
+    fig.tight_layout()
+    fig.savefig(outdir / (group + '_accuracy.png'))
+    plt.close(fig)
+
