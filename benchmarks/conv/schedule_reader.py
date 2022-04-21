@@ -3,7 +3,6 @@ import os
 import argparse
 import tvm
 from tvm.auto_scheduler  import ComputeDAG
-from conv import conv2d_layer
 import pathlib
 from multiprocessing import Pool, Queue
 from functools import partial
@@ -236,7 +235,7 @@ class TunedSchedule:
         "RF" : (lambda x: NotImplementedError("Not needed") ),    # Rfactor
    }
 
-    def __init__(self, inp, measure, inf, line):
+    def __init__(self, inp, measure=None, inf=None, line=None):
 
 #         for_lower = self.dag.apply_steps_from_state(inp.state)
 #         assert len(inp.state.transform_steps) == 37
@@ -244,7 +243,6 @@ class TunedSchedule:
 #         self.schedule, self.args = for_lower
 #         self.func = tvm.lower(self.schedule, self.args)
 
-        assert len(measure) == 1
         self.metadata, transforms = inp
 
         self.workload_key = self.metadata[0]
@@ -256,8 +254,11 @@ class TunedSchedule:
                     .format(inf, line, len(self.transforms), self.transforms))
 
         self.features = self.extract_features()
-        self.performance = np.array(measure)
-
+        if measure is not None:
+            assert len(measure) == 1
+            self.performance = np.array(measure)
+        else:
+            self.performance = -1
     def numpy(self):
         return self.features, self.performance
 

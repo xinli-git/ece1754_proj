@@ -56,7 +56,7 @@ def train(schedules, group, outdir):
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
     val_loader2 = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
 
-    hidden_dim = 32
+    hidden_dim = 64
     num_layers = 4
     lstm = ConvPerfPredictor(train_dataset.f_maxlen, hidden_dim, num_layers).cuda()
     print("Training with {} features, train: {}, test: {} on {}"\
@@ -67,7 +67,7 @@ def train(schedules, group, outdir):
     optim = torch.optim.AdamW(lstm.parameters())
     loss_curve = []
     accuracy = []
-    for epoch in tqdm(range(50)):
+    for epoch in tqdm(range(80)):
         #validate
         lstm.eval()
         avg_loss = 0

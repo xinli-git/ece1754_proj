@@ -8,6 +8,7 @@ import sys
 import argparse
 
 import datetime
+from lstm_model import LSTMModel
 
 
 @auto_scheduler.register_workload
@@ -18,7 +19,7 @@ def conv2d_layer(N, H, W, CO, CI, KH, KW, stride, padding):
     return [data, kernel, conv]
 
 
-def tune_task(func, cost_model, search_eps, niters, prefix, args):
+def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
 
     t_name = func.__name__ + prefix
 
@@ -34,7 +35,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
     print("Computational DAG:")
     print(task.compute_dag)
 
-    log_file = os.path.join("./results_gpu_3/", "{}.json".format(t_name))
+    log_file = os.path.join("./results_gpu_3_lstm/", "{}.json".format(t_name))
 
     PARAMS = {
         "eps_greedy": search_eps,
@@ -53,8 +54,12 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
         "disable_change_compute_location": 0,
     }
 
-    cost_model = auto_scheduler.XGBModel(adapative_training=True) \
-            if cost_model == "XGBoost" else auto_scheduler.RandomModel()
+    if  cost_model == "XGBoost":
+        cost_model = auto_scheduler.XGBModel(adapative_training=True)
+    elif cost_model == "lstm":
+        cost_model = LSTMModel('./data_gpu_3_hidden64/batch_{}_filter_id_{}_torch_79.pt'.format(N, filter_id))
+    else:
+        cost_model = auto_scheduler.RandomModel()
 
 
     if not os.path.exists(log_file):
@@ -86,7 +91,6 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
 
             tune_option = auto_scheduler.TuningOptions(
                 num_measure_trials=num_trials_left,
-                runner=measure_ctx.runner,
                 measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
                 verbose=2,
             )
@@ -131,7 +135,8 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("benchmarking conv")
     parser.add_argument("niters", type=int)
-    parser.add_argument("--cost_model", type=str, default="XGBoost", choices=["random", "XGBoost"])
+    parser.add_argument("--cost_model", type=str, default="XGBoost",
+                        choices=["random", "XGBoost", "lstm"])
     parser.add_argument("--search_eps", type=float, default=0.05)
     args = parser.parse_args()
 
@@ -152,4 +157,4 @@ if __name__ == "__main__":
             prefix = "_{}_eps_{}_niters_{}_batch_{}_filter_id_{}"\
                         .format(cost_model, search_eps, niters, batch_size, idx)
             tune_task(conv2d_layer, cost_model, search_eps, niters, prefix,
-                      args)
+                      args, idx)
