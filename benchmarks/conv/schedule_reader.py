@@ -319,9 +319,11 @@ def process_schedule_file(grouped_files):
                     record = json.loads(line)
                     error_no = record['r'][1]
                     if error_no != 0:
-                        continue
+                        perf = [100.] # heuristic
+                    else:
+                        perf = record['r'][0]
 
-                    sche = TunedSchedule(record['i'], record['r'][0], infile, idx)
+                    sche = TunedSchedule(record['i'], perf, infile, idx)
                     #print(len(sche.features), [f.shape for f in sche.features])
                     schedules.append(sche)
 
