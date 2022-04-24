@@ -35,7 +35,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
     print("Computational DAG:")
     print(task.compute_dag)
 
-    log_file = os.path.join("./results_gpu_3_lstm/", "{}.json".format(t_name))
+    log_file = os.path.join("./results_gpu_3_lstm_full/", "{}.json".format(t_name))
 
     PARAMS = {
         "eps_greedy": search_eps,
@@ -57,7 +57,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
     if  cost_model == "XGBoost":
         cost_model = auto_scheduler.XGBModel(adapative_training=True)
     elif cost_model == "lstm":
-        cost_model = LSTMModel('./data_gpu_3_hidden64/batch_{}_filter_id_{}_torch_79.pt'.format(N, filter_id))
+        cost_model = LSTMModel('./data_gpu_3_hidden64_full/batch_{}_filter_id_{}_torch_79.pt'.format(N, filter_id))
     else:
         cost_model = auto_scheduler.RandomModel()
 

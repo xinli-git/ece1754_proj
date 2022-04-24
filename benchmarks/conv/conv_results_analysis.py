@@ -162,7 +162,7 @@ if __name__ == "__main__":
             (224, 224, 64, 3, 7, 7, (2, 2), (3, 3)),
             (7, 7, 512, 512, 3, 3, (1, 1), (1, 1)),
                             ]
-    outdir = pathlib.Path("./measurements2_gpu3_lstm/")
+    outdir = pathlib.Path("./measurements2_gpu3_lstm_full/")
     outdir.mkdir(exist_ok=True)
     outfile = outdir / "{}_{}_{}.csv".format(cost_model, search_eps, niters)
 
