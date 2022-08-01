@@ -8,24 +8,19 @@ import sys
 import argparse
 
 import datetime
+from conv_workload import conv2d_layer
 from lstm_model import LSTMModel
 
-
-@auto_scheduler.register_workload
-def conv2d_layer(N, H, W, CO, CI, KH, KW, stride, padding):
-    data = te.placeholder((N, CI, H, W), name="data")
-    kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
-    conv = topi.nn.conv2d_nchw(data, kernel, stride, padding, dilation=1, out_dtype="float32")
-    return [data, kernel, conv]
-
-
-def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
+def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id, outdir, device):
 
     t_name = func.__name__ + prefix
 
     print("Tuning {}".format(t_name))
 
-    target = tvm.target.Target("cuda")
+    if device == 'cpu':
+        target = tvm.target.Target("llvm")
+    else:
+        target = tvm.target.Target('cuda')
 
     N, H, W, CO, CI, KH, KW, strides, padding = args
 
@@ -35,7 +30,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
     print("Computational DAG:")
     print(task.compute_dag)
 
-    log_file = os.path.join("./results_gpu_3_lstm_full/", "{}.json".format(t_name))
+    log_file = os.path.join(outdir, "{}.json".format(t_name))
 
     PARAMS = {
         "eps_greedy": search_eps,
@@ -57,7 +52,7 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
     if  cost_model == "XGBoost":
         cost_model = auto_scheduler.XGBModel(adapative_training=True)
     elif cost_model == "lstm":
-        cost_model = LSTMModel('./data_gpu_3_hidden64_full/batch_{}_filter_id_{}_torch_79.pt'.format(N, filter_id))
+        cost_model = LSTMModel()#('data_gpu_recent_200/batch_{}_filter_id_{}_torch_199.pt'.format(N, filter_id))
     else:
         cost_model = auto_scheduler.RandomModel()
 
@@ -111,7 +106,10 @@ def tune_task(func, cost_model, search_eps, niters, prefix, args, filter_id):
     weight_np = np.random.uniform(size=(CO, CI, KH,
                                         KW)).astype(np.float32)
 
-    dev = tvm.cuda()
+    if device == 'cpu':
+        dev = tvm.cpu()
+    else:
+        dev = tvm.cuda()
     data_tvm = tvm.nd.empty((N, CI, H, W), device=dev)
     weight_tvm = tvm.nd.empty((CO, CI, KH, KW), device=dev)
     out_tvm = tvm.nd.empty((N, CO, H / strides[0], W / strides[1]), device=dev)
@@ -138,7 +136,10 @@ if __name__ == "__main__":
     parser.add_argument("--cost_model", type=str, default="XGBoost",
                         choices=["random", "XGBoost", "lstm"])
     parser.add_argument("--search_eps", type=float, default=0.05)
+    parser.add_argument("--outdir", type=str)
+    parser.add_argument("--device", type=str, choices=['cpu', 'cuda'], default='cpu')
     args = parser.parse_args()
+    outdir = args.outdir
 
     niters = args.niters
     cost_model = args.cost_model
@@ -153,8 +154,8 @@ if __name__ == "__main__":
     for batch_size in batch_size_options:
 
         for idx, filter_size in enumerate(filtre_size_opionts):
-            args = (batch_size, ) + filter_size
+            kernel_args = (batch_size, ) + filter_size
             prefix = "_{}_eps_{}_niters_{}_batch_{}_filter_id_{}"\
                         .format(cost_model, search_eps, niters, batch_size, idx)
             tune_task(conv2d_layer, cost_model, search_eps, niters, prefix,
-                      args, idx)
+                      kernel_args, idx, outdir, args.device)

@@ -119,9 +119,9 @@ def plot_progression(niters, combos, batch_size_options, filters, indirs, outdir
 if __name__ == "__main__":
 
     niters = 10000
-    combos = [('random', 0.5),
-                ('XGBoost', 0.5),
-                ('lstm', 0.5), ]
+    combos = [('random', 0.05),
+                ('XGBoost', 0.05),
+                ('lstm', 0.05), ]
 
     batch_size_options = [1, 8, 64]
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
               pathlib.Path("./measurements2_gpu_2/"),
               pathlib.Path("./measurements2_gpu_3/")]
 
-    outdir = pathlib.Path("./plots_gpu_3_with_lstm_full/")
+    outdir = pathlib.Path("./plots_gpu_3_with_lstm_mod/")
     outdir.mkdir(exist_ok=True)
 
     plot_overall_results(niters, combos, batch_size_options, filters=2, indirs=indirs, outdir=outdir)

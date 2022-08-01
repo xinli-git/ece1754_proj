@@ -8,57 +8,92 @@ from tqdm import tqdm
 
 class ConvPerfPredictor(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, num_layers=4, dropout=0.5):
+    def __init__(self, embedding_dim, hidden_dim, num_layers=4, dropout=0.5,
+                    bidirectional=False):
         super().__init__()
 
         self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=num_layers,
-                            batch_first=True, dropout=dropout)
+                            batch_first=True, dropout=dropout,
+                            bidirectional=bidirectional)
+        D = 2 if bidirectional else 1
         # The linear layer that maps from hidden state space to tag space
-        self.hidden2perf = nn.Linear(hidden_dim, 1)
+        self.hidden2perf1 = nn.Linear(D * hidden_dim, 32)
+        self.hidden2perf2 = nn.Linear(32, 16)
+        self.hidden2perf3 = nn.Linear(16, 1)
 
     def forward(self, features):
         lstm_out, _ = self.lstm(features)
         out_last = lstm_out.transpose(0, 1)[-1]
-        perf = self.hidden2perf(out_last)
+        perf = self.hidden2perf1(out_last)
+        perf = self.hidden2perf2(perf)
+        perf = self.hidden2perf3(perf)
         return perf
 
 
 class AnsorScheduleDataset( torch.utils.data.Dataset):
 
-    def __init__(self, schedules):
+    def __init__(self, schedules, valid_only=False):
+        if valid_only:
+            self.schedules = [s for s in schedules if s.valid]
+        else:
+            self.schedules = schedules
 
-        self.schedules = schedules
-        sample_features = schedules[0].features
-        self.f_maxlen = max([len(f) for f in sample_features])
+        max_len = 0
+        max_trans = 0
+        for s in schedules:
+            max_trans = max(max_trans, len(s.features))
+            for f in s.features:
+                max_len = max(max_len, len(f))
+        self.f_maxlen = max_len
+        self.trans_maxlen = max_trans
+
+
 
     def __len__(self):
         return len(self.schedules)
 
     def __getitem__(self, idx):
-
-        features = self.schedules[idx].features
+        sche = self.schedules[idx]
+        features = sche.features
         features_padded = [F.pad(torch.tensor(f, dtype=torch.float),
                                  (0, self.f_maxlen - len(f), )) \
                                             for f in features]
         features_padded = torch.cat([f.unsqueeze(0) for f in features_padded], axis=0)
-        return features_padded, torch.tensor( self.schedules[idx].performance, dtype=torch.float)
+
+        return features_padded, torch.tensor(sche.throughput, dtype=torch.float)
 
 
-def train(schedules, group, outdir):
+def train(schedules, group, outdir, epochs=100, bidirectional=False):
 
     random.shuffle(schedules)
     split = 0.8
     train_idx = int(0.8 * len(schedules))
 
     train_dataset = AnsorScheduleDataset(schedules[:train_idx])
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=256, num_workers=8, pin_memory=True)
+    def collate_seqs(batch):
+        max_seq = max((len(f) for f in batch))
+        new_features = []
+        for feature, target in batch:
+            new_features.append(\
+                    F.pad(feature, (0, 0, 0, max_seq - len(feature)))
+                    )
+        out = torch.stack(new_features), torch.stack([i[1] for i in batch])
+        return out
+
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+            batch_size=256, num_workers=8,
+            shuffle=True, pin_memory=True,
+            collate_fn=collate_seqs)
     val_dataset = AnsorScheduleDataset(schedules[train_idx:])
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
-    val_loader2 = torch.utils.data.DataLoader(val_dataset, batch_size=4096, num_workers=8, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset,
+            batch_size=4096,
+            num_workers=8, pin_memory=True,
+            collate_fn=collate_seqs)
 
     hidden_dim = 64
     num_layers = 4
-    lstm = ConvPerfPredictor(train_dataset.f_maxlen, hidden_dim, num_layers).cuda()
+    lstm = ConvPerfPredictor(train_dataset.f_maxlen, hidden_dim, num_layers,
+                    bidirectional=bidirectional).cuda()
     print("Training with {} features, train: {}, test: {} on {}"\
             .format(len(schedules), len(train_dataset), len(val_dataset), group))
     print("LSTM with input feature size: {}, hidden: {} X {}"\
@@ -67,7 +102,7 @@ def train(schedules, group, outdir):
     optim = torch.optim.AdamW(lstm.parameters())
     loss_curve = []
     accuracy = []
-    for epoch in tqdm(range(80)):
+    for epoch in tqdm(range(epochs)):
         #validate
         lstm.eval()
         avg_loss = 0

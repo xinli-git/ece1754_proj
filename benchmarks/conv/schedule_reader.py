@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 from training import train
 
+import conv_workload
 noop = lambda x: np.zeros(2)
 NUM_MAX_STAGES = 10
 NUM_MAX_LOOPS = 50
@@ -216,6 +217,20 @@ def extract_cache_write(data):
     return np.concatenate([transform_onehot, stage_onehot, scope_onehot])
 
 
+def extract_compute_root(data):
+    transform_onehot = np.zeros(NUM_TRANSFORM_TYPES)
+    stage_onehot = np.zeros(NUM_MAX_STAGES)
+    target_stage_onehot = np.zeros(NUM_MAX_STAGES)
+    target_iteration_onehot = np.zeros(NUM_MAX_LOOPS)
+
+    transform_id = 11
+    stage, = data[1:]
+
+    transform_onehot[transform_id] = 1.
+    stage_onehot[stage] = 1.
+
+    return np.concatenate([transform_onehot, stage_onehot,])
+
 class TunedSchedule:
 
     ExtractFrom = {
@@ -226,13 +241,13 @@ class TunedSchedule:
         "SP" : extract_split,    #"auto_scheduler.SplitStep"
         "FSP" : extract_follow_split,   #"auto_scheduler.FollowSplitStep"
         "FFSP" : extract_follow_fused_split,  #"auto_scheduler.FollowFusedSplitStep"
-        "SA" : (lambda x: NotImplementedError("Not needed") ),    #"auto_scheduler.StorageAlignStep"
+        "SA" : (lambda x: print(x, "Not needed") ),    #"auto_scheduler.StorageAlignStep"
         "CA" : extract_compute_at,    #"auto_scheduler.ComputeAtStep"
         "CI" : extract_compute_inline,    #"auto_scheduler.ComputeInlineStep"
-        "CR" : (lambda x: NotImplementedError("Not needed") ),    #"auto_scheduler.ComputeRootStep"
         "CHR" : extract_cache_read,   #"auto_scheduler.CacheReadStep"
         "CHW" : extract_cache_write,   #"auto_scheduler.CacheWriteStep"
-        "RF" : (lambda x: NotImplementedError("Not needed") ),    # Rfactor
+        "CR" : extract_compute_root,    #"auto_scheduler.ComputeRootStep"
+        "RF" : (lambda x: print(x, "Not needed") ),    # Rfactor
    }
 
     def __init__(self, inp, measure=None, inf=None, line=None):
@@ -248,17 +263,26 @@ class TunedSchedule:
         self.workload_key = self.metadata[0]
         self.dag = ComputeDAG(self.workload_key)
 
+        batch_size = self.workload_key.split(',')[1]
+        self.batch_size = int(batch_size)
+
         self.transforms = transforms[1]
-        if len(self.transforms) != 37:
-            raise ValueError("At {}:{}\nExpect number of transforms to be 37, got {}\n{}"
-                    .format(inf, line, len(self.transforms), self.transforms))
+        #if len(self.transforms) != 37:
+        #    raise ValueError("At {}:{}\nExpect number of transforms to be 37, got {}\n{}"
+        #           .format(inf, line, len(self.transforms), self.transforms))
 
         self.features = self.extract_features()
         if measure is not None:
             assert len(measure) == 1
             self.performance = np.array(measure)
+            self.throughput = 1./self.performance
+            self.valid = True
         else:
-            self.performance = -1
+            self.performance = np.array([1000.]) # heuristic
+            self.throughput = np.array([0.])
+            self.valid = False
+
+
     def numpy(self):
         return self.features, self.performance
 
@@ -270,6 +294,11 @@ class TunedSchedule:
         #    xxx = tuple(t[0] for t in self.transforms)
         #    if global_order != xxx:
         #        print(global_order, xxx)
+        max_feature_size = max(self.batch_size // 32 + 1,  128)
+        batch_size_onehot = np.zeros(max_feature_size)
+        batch_size_bucket = self.batch_size // 32
+        batch_size_onehot[batch_size_bucket] = 1.
+        #features = [batch_size_onehot]
         features = []
         for transform in self.transforms:
             transform_name = transform[0]
@@ -319,7 +348,7 @@ def process_schedule_file(grouped_files):
                     record = json.loads(line)
                     error_no = record['r'][1]
                     if error_no != 0:
-                        perf = [100.] # heuristic
+                        perf = None
                     else:
                         perf = record['r'][0]
 
@@ -336,9 +365,10 @@ def process_schedule_file(grouped_files):
                         len(group_schedules) + len(schedules)
                     ))
         group_schedules += schedules
-    plot_cosine(group_schedules, grouped_files[0], results_outdir, seps)
+    #plot_cosine(group_schedules, grouped_files[0], results_outdir, seps)
 
-    train(group_schedules, grouped_files[0], results_outdir)
+    train(group_schedules, grouped_files[0], results_outdir,
+                epochs=200, bidirectional=False)
 
     return grouped_files[0], len(group_schedules)
 
@@ -386,6 +416,7 @@ if __name__ == '__main__':
 
     files = [(str(indir / f), str(outdir/f.name)[:-5] )  for f in indir.iterdir()]
 
+ #   groups = ['filter_id_{}'.format(i) for i in (0, 1)]
     groups = ['batch_{}_filter_id_{}'.format(b, i) for b in (1, 8, 64) for i in (0, 1)]
     grouped_files = {k : [] for k in groups}
     for f in files:
